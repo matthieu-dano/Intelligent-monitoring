@@ -1,5 +1,0 @@
-black
-black[jupyter]
-ruff
-pytest
-requests-mock

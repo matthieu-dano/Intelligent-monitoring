@@ -1,7 +1,0 @@
-load_from:
-  # Each entry here corresponds to a service in the docker-compose file that exposes user code.
-  - grpc_server:
-      host: dagster_intelligent_pipeline
-      port: 9090
-      location_name: intelligent_pipeline
-      
