@@ -1,0 +1,116 @@
+services:
+  dagster_postgresql:
+    image: postgres:16.3
+    container_name: dagster_postgresql
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5433:5432"
+    networks:
+      - dagster_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dagster_intelligent_pipeline:
+    build:
+      context: .
+      dockerfile: ./Dockerfile_intelligent_pipeline
+      args:
+        SKYMINER_API_URL: ${SKYMINER_API_URL}
+        NOTEBOOK_PATH: ${NOTEBOOK_PATH}
+        MODEL_PATH: ${MODEL_PATH}
+        CHECKPOINT_PATH: ${CHECKPOINT_PATH}
+        DAGSTER_HOME: ${DAGSTER_HOME}
+        GRAPHQL_URL: ${GRAPHQL_URL}
+    container_name: dagster_intelligent_pipeline
+    image: dagster_intelligent_pipeline_image
+    restart: always
+    environment:
+      DAGSTER_HOME: ${DAGSTER_HOME}
+      DAGSTER_POSTGRES_USER: ${POSTGRES_USER}
+      DAGSTER_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DAGSTER_POSTGRES_DB: ${POSTGRES_DB}
+      DAGSTER_CURRENT_IMAGE: "dagster_intelligent_pipeline_image"
+    ports:
+      - "9090:9090"
+    networks:
+      - dagster_network
+    volumes:
+      - /home/dagster/volumes/checkpoints:/opt/dagster/intelligent_pipeline/checkpoints
+      - /home/dagster/volumes/models:/opt/dagster/intelligent_pipeline/models
+      - /home/dagster/volumes/reports:/opt/dagster/intelligent_pipeline/notebooks
+      - /home/dagster/dagster_home/:/opt/dagster/dagster_home/
+      - /home/dagster/intelligent_monitoring/intelligent_pipeline:/opt/dagster/intelligent_pipeline
+    healthcheck:
+      test: ["CMD", "dagster", "api", "grpc-health-check", "--host", "localhost", "--port", "9090"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  dagster_webserver:
+    build:
+      context: .
+      dockerfile: ./Dockerfile_dagster
+      args:
+        DAGSTER_HOME: ${DAGSTER_HOME}
+    entrypoint:
+      - dagster-webserver
+      - -h
+      - "0.0.0.0"
+      - -p
+      - "4000"
+      - -w
+      - workspace.yaml
+    container_name: dagster_webserver
+    ports:
+      - "4000:4000"
+    environment:
+      DAGSTER_POSTGRES_USER: ${POSTGRES_USER}
+      DAGSTER_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DAGSTER_POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/io_manager_storage:/tmp/io_manager_storage
+    networks:
+      - dagster_network
+    depends_on:
+      dagster_postgresql:
+        condition: service_healthy
+      dagster_intelligent_pipeline:
+        condition: service_healthy
+
+  dagster_daemon:
+    build:
+      context: .
+      dockerfile: ./Dockerfile_dagster
+      args:
+        DAGSTER_HOME: ${DAGSTER_HOME}
+    entrypoint:
+      - dagster-daemon
+      - run
+    container_name: dagster_daemon
+    restart: on-failure
+    environment:
+      DAGSTER_POSTGRES_USER: ${POSTGRES_USER}
+      DAGSTER_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DAGSTER_POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/io_manager_storage:/tmp/io_manager_storage
+    networks:
+      - dagster_network
+    depends_on:
+      dagster_postgresql:
+        condition: service_healthy
+      dagster_intelligent_pipeline:
+        condition: service_healthy
+
+networks:
+  dagster_network:
+    driver: bridge
+    name: dagster_network
